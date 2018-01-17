@@ -30,49 +30,62 @@ function inline({ resources, transforms, shortcuts, logger } = {}) {
   }
 
   let stream = through.obj(function (file, encoding, callback) {
-    var contents;
+    $gulp = this;
+
     if (file.isNull()) {
       return callback(null, file);
     }
     else if (file.isStream()) {
-      this.emit('error', new PluginError(PLUGIN_NAME, 'Streams not supported!'));
+      $gulp.emit('error', new PluginError(PLUGIN_NAME, 'Streams not supported!'));
     }
     else if (file.isBuffer()) {
-      contents = file.contents.toString(encoding);
 
-      const target = {
+      let target = {
         name: "gulpstream",
         args: [file.path],
-        contents: contents
-      };
+        contents: file.contents.toString(encoding)
+      }
       const dependency = {};
 
       inlineJs.inline({
         target,
         dependency
-      }).then(result => {
-        const basedir = path.resolve(".");
-        const shorttree = changeKeys(dependency, path =>
-          path.startsWith(basedir) ? path.slice(basedir.length + 1) : path);
-          
-        var tree = treeify.asTree(Object.values(shorttree)[0]);
-        if (tree) {
-          log(PLUGIN_NAME + ": " + Object.keys(shorttree)[0]);
-          log(PLUGIN_NAME + ": " + tree);
-        }
-        function changeKeys(node, newKeyFunc) {
-          Object.keys(node).forEach(key => {
-            let value = node[key];
-            node[newKeyFunc(key)] = value;
-            delete node[key];
-            if (value) changeKeys(value, newKeyFunc);
-          });
-          return node;
-        }
+      })
+        .then(result => {
+          let basedir = path.resolve(".");
+          let shorttree = changeKeys(dependency, path =>
+            path.startsWith(basedir) ? path.slice(basedir.length + 1) : path);
 
-        file.contents = new Buffer(result);
-        callback(null, file);
-      });
+          let tree = treeify.asTree(Object.values(shorttree)[0]);
+          if (tree) {
+            log(PLUGIN_NAME + ": " + Object.keys(shorttree)[0]);
+            tree.trim('\n').split('\n')
+              .forEach((line, i, array) => {
+                let newline = "";
+                if (i === array.length - 1) newline = "\n";
+                log(PLUGIN_NAME + ": " + line + newline)
+              });
+          }
+          function changeKeys(node, newKeyFunc) {
+            Object.keys(node).forEach(key => {
+              let value = node[key];
+              node[newKeyFunc(key)] = value;
+              delete node[key];
+              if (value) changeKeys(value, newKeyFunc);
+            });
+            return node;
+          }
+
+          file.contents = new Buffer(result);
+          callback(null, file);
+        })
+        .catch(function (err) {
+          err.message = "include-js '" + file.path + "' got: " + err.message;
+          if (err.errno == -4058) {
+            err = { message: err.message };
+          }
+          $gulp.emit('error', new PluginError(PLUGIN_NAME, err));
+        });
     }
   });
 
